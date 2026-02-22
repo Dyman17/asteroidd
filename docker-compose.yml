@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  ai-server:
+    build: ./ai_server
+    ports:
+      - "8000:8000"
+    environment:
+      - ESP32_CAM_URL=http://esp32-cam.local/capture
+      - MODEL_PATH=yolov8n.pt
+      - CONF_THRESHOLD=0.5
+    volumes:
+      - ./ai_server:/app
+    restart: unless-stopped
+    networks:
+      - smart-grabber-network
+
+networks:
+  smart-grabber-network:
+    driver: bridge

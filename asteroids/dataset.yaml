@@ -1,0 +1,8 @@
+names:
+- asteroid
+nc: 1
+path: "C:\\Users\\\u0410\u0434\u043C\u0438\u043D\\Desktop\\esp32code\\backend_minimal\\\
+  ..\\asteroids"
+test: test/images
+train: train/images
+val: valid/images
