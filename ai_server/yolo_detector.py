@@ -3,7 +3,7 @@ import numpy as np
 from ultralytics import YOLO
 import time
 from typing import List, Tuple
-from .models import DetectionResult
+from models import DetectionResult
 
 class YOLODetector:
     def __init__(self, model_path: str = "yolov8n.pt"):

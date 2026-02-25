@@ -4,18 +4,34 @@ import asyncio
 import aiofiles
 from datetime import datetime
 from typing import Optional
+from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, File, UploadFile
 from fastapi.responses import JSONResponse
 import requests
 
-from .models import AnalysisResponse, DetectionResult, StatusResponse
-from .yolo_detector import YOLODetector
+from models import AnalysisResponse, DetectionResult, StatusResponse
+from yolo_detector import YOLODetector
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Инициализация при запуске сервера"""
+    global detector
+    try:
+        detector = YOLODetector(model_path=MODEL_PATH)
+        print(f"✅ YOLO модель загружена: {MODEL_PATH}")
+        print(f"🎯 Разрешенные классы: {detector.get_allowed_classes()}")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки модели: {e}")
+        detector = None
+    yield
+    # Cleanup code here if needed
 
 app = FastAPI(
     title="AI Smart Grabber Server",
     description="Сервер для анализа изображений с YOLO и принятия решений",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Глобальные переменные
@@ -26,18 +42,6 @@ start_time = time.time()
 ESP32_CAM_URL = os.getenv("ESP32_CAM_URL", "http://192.168.1.100/capture")
 MODEL_PATH = os.getenv("MODEL_PATH", "yolov8n.pt")
 CONF_THRESHOLD = float(os.getenv("CONF_THRESHOLD", "0.5"))
-
-@app.on_event("startup")
-async def startup_event():
-    """Инициализация при запуске сервера"""
-    global detector
-    try:
-        detector = YOLODetector(model_path=MODEL_PATH)
-        print(f"✅ YOLO модель загружена: {MODEL_PATH}")
-        print(f"🎯 Разрешенные классы: {detector.get_allowed_classes()}")
-    except Exception as e:
-        print(f"❌ Ошибка загрузки модели: {e}")
-        detector = None
 
 @app.get("/")
 async def root():
@@ -176,7 +180,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=int(os.getenv("PORT", 8000)),
+        reload=False if os.getenv("PORT") else True,
         log_level="info"
     )
