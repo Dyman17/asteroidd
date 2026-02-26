@@ -47,57 +47,57 @@ def yolo_detect(image):
     Возвращает случайные объекты для проверки логики
     """
     import random
-    
+
     # Генерируем случайное число для логирования
     rand_val = random.random()
-    print(f"🎲 Случайное значение: {rand_val:.3f}")
-    
+    print(f"Случайное значение: {rand_val:.3f}")
+
     # 40% шанс найти мусор (разрешенные объекты)
     if rand_val < 0.4:
         trash_items = ["bottle", "can", "cup", "book", "cell phone", "plastic_bag"]
         found = random.choice(trash_items)
-        print(f"🗑️ Мок-детекция: найден мусор - {found}")
+        print(f"Мок-детекция: найден мусор - {found}")
         return [found]
-    
+
     # 20% шанс найти человека/руку (запрещено)
     elif rand_val < 0.6:
         person_items = ["person", "hand"]
         found = random.choice(person_items)
-        print(f"🚫 Мок-детекция: найден человек/рука - {found}")
+        print(f"Мок-детекция: найден человек/рука - {found}")
         return [found]
-    
+
     # 15% шанс найти астероид (запрещено)
     elif rand_val < 0.75:
-        print("🌑 Мок-детекция: найден астероид (ЗАПРЕЩЕНО)")
+        print("Мок-детекция: найден астероид (ЗАПРЕЩЕНО)")
         return ["asteroid"]
-    
+
     # 25% ничего не найдено
     else:
-        print("👻 Мок-детекция: ничего не найдено")
+        print("Мок-детекция: ничего не найдено")
         return []
 
 # ===== UTILS =====
 def get_camera_frame():
     global last_frame
-    print("📷 Запрос изображения с камеры...")
+    print("Запрос изображения с камеры...")
     try:
         r = requests.get(CAMERA_URL, timeout=TIMEOUT)
         if r.status_code != 200:
-            print(f"❌ Камера вернула статус: {r.status_code}")
+            print(f"[ERROR] Камера вернула статус: {r.status_code}")
             return None
 
         img_array = np.frombuffer(r.content, np.uint8)
         frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-        
+
         if frame is None:
-            print("❌ Не удалось декодировать изображение")
+            print("[ERROR] Не удалось декодировать изображение")
             return None
-            
+
         last_frame = frame.copy()
-        print(f"✅ Изображение получено: {frame.shape}")
+        print(f"Изображение получено: {frame.shape}")
         return frame
     except Exception as e:
-        print(f"❌ Ошибка получения кадра: {e}")
+        print(f"[ERROR] Ошибка получения кадра: {e}")
         return None
 
 def draw_detection_info(frame, detections, decision):
