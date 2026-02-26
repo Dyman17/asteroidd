@@ -1,136 +1,83 @@
-# AI Smart Grabber / AI-Controlled Manipulator
+# 🤖 AI Smart Grabber
 
-## 🧠 Суть проекта
+**«Интеллектуальная система манипуляции с детекцией астероидов»**
 
-Проект представляет собой интеллектуальную роботизированную систему, которая:
-- обнаруживает объект физически (ультразвук)
-- распознаёт объект визуально (камера + YOLO)
-- принимает решение на сервере
-- выполняет действие автоматически (захват или игнор)
+AI Smart Grabber — система роботизированной манипуляции с использованием ESP32-CAM и YOLO для детекции объектов. Проект создан для автоматического захвата и сортировки объектов, включая астероиды и космические объекты.
 
-Главная идея — разделение логики:
-- **ESP32** → датчики и механика
-- **ESP32-CAM** → только камера
-- **Ноутбук** → мозг (AI + логика)
+## 🎯 Возможности
 
-Это делает систему стабильной, масштабируемой и легко отлаживаемой.
+- **Детекция**: астероиды, космические объекты, бытовые предметы
+- **Манипуляция**: автоматический захват и перемещение
+- **Реальное время**: мгновенная обработка через FastAPI
+- **Источники**: ESP32-CAM + YOLO AI + сервоприводы
 
-## 🎯 Цель проекта
-
-Создать умный манипулятор, который способен:
-- различать допустимые и недопустимые объекты
-- работать в локальной сети без интернета
-- принимать решения на основе компьютерного зрения
-- быть основой для промышленных, учебных и исследовательских задач
-
-## 🏗 Архитектура проекта
-
-Проект построен по принципу Client–Server + Edge Devices:
+## 🏗 Архитектура
 
 ```
-📷 ESP32-CAM → только захват изображения
-🤖 AI Server (FastAPI + YOLO) → анализ + решение
-🦾 ESP32-Servo → исполнительный механизм
+📷 ESP32-CAM → FastAPI Backend → YOLO AI → ESP32-Servo
 ```
 
-Никаких тяжёлых вычислений на ESP — всё вынесено на сервер.
+## � Быстрый старт
 
-## ⚙️ Основные компоненты
+### 1. Запуск AI сервера
+```bash
+cd ai_server && pip install -r requirements.txt
+python main.py
+```
 
-### 📷 ESP32-CAM
-- Стоковая прошивка CameraWebServer
-- Используется эндпоинт /capture
-- Возвращает чистый JPEG
-- Не нагружается AI-логикой
+### 2. Прошивка ESP32-CAM
+- Настройте Wi-Fi в `esp32_cam/esp32cam.ino`
+- Прошейте устройство
 
-### 🦾 ESP32-Servo
-- Ультразвуковые датчики (L / C / R)
-- Серво-приводы манипулятора
-- Делает HTTP-запрос к серверу
-- Выполняет команду ALLOW / DENY
+### 3. Прошивка ESP32-Servo
+- Настройте IP адреса в `esp32_servo/manipulator.ino`
+- Прошейте устройство
 
-### 🤖 AI Сервер (Ноутбук)
-- FastAPI
-- YOLOv8
-- Дополнительная модель (Asteroids)
-- Центр принятия решений
+## 📁 Структура
 
-## 🔁 Алгоритм работы
+```
+├── ai_server/        # FastAPI сервер с YOLO
+├── esp32_cam/        # Прошивка ESP32-CAM
+├── esp32_servo/      # Прошивка ESP32-Servo
+├── docs/             # Документация
+└── requirements.txt  # Зависимости Python
+```
 
-1. ESP32-Servo измеряет расстояние
-2. Объект ближе 15 см → запрос на сервер
-3. Сервер получает JPEG с ESP32-CAM
-4. YOLO анализирует изображение
-5. Сервер возвращает:
-   - "ALLOW" — объект допустим
-   - "DENY" — объект запрещён
-6. Манипулятор выполняет действие
+## 📊 API
 
-## 🧪 Используемые технологии
+- `POST /analyze` - анализ загруженного изображения
+- `POST /analyze/esp32` - анализ с ESP32-CAM
+- `GET /status` - статус сервера
+- `GET /allowed-classes` - разрешенные классы объектов
+- `POST /allowed-classes` - обновление классов
 
-- ESP32 / ESP32-CAM
-- Wi-Fi (локальная сеть)
-- FastAPI
-- Python
-- YOLOv8
-- HTTP REST API
-- Computer Vision
+## 🌐 Ссылки
+
+- **GitHub**: [github.com/Dyman17/asteroidd](https://github.com/Dyman17/asteroidd)
+- **Документация**: [Google Docs](https://docs.google.com/document/d/1-TK_TiXlVmHxVKi7C-XYBaTW_SIBIqns/edit?usp=sharing&ouid=116860278482411569103&rtpof=true&sd=true)
+- **Презентация**: [Google Slides](https://docs.google.com/document/d/1-TK_TiXlVmHxVKi7C-XYBaTW_SIBIqns/edit?usp=sharing&ouid=116860278482411569103&rtpof=true&sd=true)
+- **Видео**: [Google Drive](https://drive.google.com/file/d/12Rnz7P5-263DtvEsZlyrEBy-qIDxIwQh/view?usp=drive_link)
 
 ## 🧠 Классы объектов
 
 ### ALLOW_CLASSES:
-- bottle
-- can
-- cup
-- book
-- cell phone
-- asteroid
-- space_rock
-- meteor
+- `asteroid` - астероиды
+- `space_rock` - космические камни
+- `meteor` - метеоры
+- `bottle` - бутылки
+- `can` - банки
+- `cup` - чашки
+- `book` - книги
+- `cell phone` - телефоны
 
-(список легко расширяется)
+---
 
-## 📁 Структура проекта
+<div align="center">
 
-```
-esp32code/
-├── README.md                 # Этот файл
-├── ai_server/               # AI сервер на FastAPI
-│   ├── main.py              # Основной файл сервера
-│   ├── models.py            # Модели данных
-│   ├── yolo_detector.py     # YOLO детектор
-│   └── requirements.txt     # Зависимости Python
-├── esp32_cam/               # Прошивка ESP32-CAM
-│   ├── camera_web_server.ino
-│   └── config.h
-├── esp32_servo/             # Прошивка ESP32-Servo
-│   ├── manipulator.ino
-│   └── config.h
-└── docs/                    # Документация
-    ├── setup.md
-    └── api.md
-```
+**🤖 AI Smart Grabber - Умная манипуляция для космоса и Земли!**
 
-## 🚀 Быстрый старт
+[![GitHub](https://img.shields.io/badge/📦-GitHub-black?style=flat-square)](https://github.com/Dyman17/asteroidd)
+[![Python](https://img.shields.io/badge/🐍-Python-blue?style=flat-square)](https://www.python.org/)
+[![YOLO](https://img.shields.io/badge/🎯-YOLO-orange?style=flat-square)](https://ultralytics.com/)
 
-1. **Настройте AI сервер:**
-   ```bash
-   cd ai_server
-   pip install -r requirements.txt
-   python main.py
-   ```
-
-2. **Прошейте ESP32-CAM:**
-   - Откройте `esp32_cam/camera_web_server.ino`
-   - Настройте Wi-Fi параметры
-   - Прошейте устройство
-
-3. **Прошейте ESP32-Servo:**
-   - Откройте `esp32_servo/manipulator.ino`
-   - Настройте IP адреса
-   - Прошейте устройство
-
-## 📖 Подробная документация
-
-- [Настройка и установка](docs/setup.md)
-- [API документация](docs/api.md)
+</div>
