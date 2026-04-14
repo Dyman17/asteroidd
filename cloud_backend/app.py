@@ -45,8 +45,6 @@ ai_url_runtime: Optional[str] = None
 esp_cam_ip: Dict[str, str] = {}
 latest_cam_device_id: Optional[str] = None
 latest_results: Dict[str, AnalysisResponse] = {}
-latest_raw_frames: Dict[str, bytes] = {}
-latest_raw_meta: Dict[str, dict] = {}
 lock = threading.Lock()
 
 
@@ -169,84 +167,6 @@ def ai_ping(
     }
 
 
-@app.post("/esp_cam/ingest", response_model=AnalysisResponse)
-async def ingest_frame(
-    request: Request,
-    x_device_id: Optional[str] = Header(default=None),
-) -> AnalysisResponse:
-    """
-    Deprecated for current scheme. Kept for compatibility.
-    """
-    device_id = (x_device_id or DEFAULT_DEVICE_ID).strip()
-    body = await request.body()
-    if not body:
-        raise HTTPException(status_code=400, detail="Empty request body")
-
-    result = _forward_to_ai(body, device_id=device_id)
-    with lock:
-        latest_results[device_id] = result
-        last_seen[f"esp_cam:{device_id}"] = _now()
-    return result
-
-
-@app.post("/esp_cam/frame")
-async def ingest_raw_frame(
-    request: Request,
-    x_device_id: Optional[str] = Header(default=None),
-    x_width: Optional[str] = Header(default=None),
-    x_height: Optional[str] = Header(default=None),
-    x_format: Optional[str] = Header(default=None),
-) -> dict:
-    device_id = (x_device_id or DEFAULT_DEVICE_ID).strip()
-    raw = await request.body()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Empty request body")
-
-    width = int(x_width) if x_width else CAM_WIDTH
-    height = int(x_height) if x_height else CAM_HEIGHT
-    fmt = (x_format or "RGB565").upper()
-
-    with lock:
-        latest_raw_frames[device_id] = raw
-        latest_raw_meta[device_id] = {"width": width, "height": height, "format": fmt}
-        last_seen[f"esp_cam:{device_id}"] = _now()
-        global latest_cam_device_id
-        latest_cam_device_id = device_id
-
-    return {"ok": True, "device_id": device_id, "width": width, "height": height, "format": fmt}
-
-
-@app.get("/esp_servo/check", response_class=PlainTextResponse)
-def check(device_id: str = DEFAULT_DEVICE_ID) -> str:
-    # Servo pulls a decision; server pulls the latest frame from ESP32-CAM,
-    # sends it to AI, then returns ALLOW/DENY.
-    try:
-        with lock:
-            lookup_id = device_id
-            if not lookup_id or lookup_id.lower() == "auto":
-                lookup_id = latest_cam_device_id or DEFAULT_DEVICE_ID
-            raw = latest_raw_frames.get(lookup_id)
-            meta = latest_raw_meta.get(lookup_id, {})
-        if not raw:
-            return "DENY"
-        if meta.get("format", "RGB565").upper() != "RGB565":
-            return "DENY"
-        image_bytes = _rgb565_to_jpeg(raw, int(meta.get("width", CAM_WIDTH)), int(meta.get("height", CAM_HEIGHT)))
-    except Exception:
-        return "DENY"
-
-    try:
-        result = _forward_to_ai(image_bytes, device_id=device_id)
-    except HTTPException:
-        return "DENY"
-
-    with lock:
-        latest_results[lookup_id] = result
-        last_seen[f"esp_servo:{device_id}"] = _now()
-        last_seen[f"esp_cam:{lookup_id}"] = _now()
-    return result.decision
-
-
 @app.get("/ai/latest", response_model=AnalysisResponse)
 def latest(device_id: str = DEFAULT_DEVICE_ID) -> AnalysisResponse:
     with lock:
@@ -311,20 +231,28 @@ def esp_servo_event(device_id: str = DEFAULT_DEVICE_ID) -> dict:
     ESP-Servo signals object detected. Trigger fresh AI analysis.
     """
     with lock:
-        # Find the latest camera device
+        # Find the camera IP
         lookup_id = latest_cam_device_id or DEFAULT_DEVICE_ID
-        raw = latest_raw_frames.get(lookup_id)
-        meta = latest_raw_meta.get(lookup_id, {})
+        ip = esp_cam_ip.get(lookup_id)
 
-    if not raw:
-        return {"decision": "DENY", "reason": "No frame available"}
+    if not ip:
+        return {"decision": "DENY", "reason": "No camera IP available"}
 
-    # Convert to JPEG and forward to AI
-    if meta.get("format", "RGB565").upper() == "RGB565":
-        image_bytes = _rgb565_to_jpeg(raw, int(meta.get("width", CAM_WIDTH)), int(meta.get("height", CAM_HEIGHT)))
-    else:
-        image_bytes = raw
+    # Pull fresh frame from ESP-CAM
+    try:
+        resp = requests.get(f"http://{ip}/capture", timeout=5.0)
+        resp.raise_for_status()
+        raw = resp.content
+    except Exception as exc:
+        return {"decision": "DENY", "reason": f"Failed to capture frame: {exc}"}
 
+    # Convert RGB565 BMP to JPEG
+    try:
+        image_bytes = _rgb565_to_jpeg(raw, CAM_WIDTH, CAM_HEIGHT)
+    except Exception as exc:
+        return {"decision": "DENY", "reason": f"Frame conversion error: {exc}"}
+
+    # Forward to AI
     try:
         result = _forward_to_ai(image_bytes, device_id=device_id)
         with lock:
