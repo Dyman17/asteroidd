@@ -278,6 +278,33 @@ async def ai_result(request: Request) -> AnalysisResponse:
     return result
 
 
+@app.get("/ai/pull_frame")
+def pull_frame(ai_device_id: str = DEFAULT_DEVICE_ID, cam_device_id: str = "") -> dict:
+    """
+    AI pulls a frame to analyze. 
+    If no cam_device_id specified, uses the latest one.
+    Returns frame as base64 or empty dict if none available.
+    """
+    with lock:
+        lookup_id = cam_device_id or latest_cam_device_id or DEFAULT_DEVICE_ID
+        raw = latest_raw_frames.get(lookup_id)
+        meta = latest_raw_meta.get(lookup_id, {})
+        last_seen[f"ai_laptop:{ai_device_id}"] = _now()
+    
+    if not raw:
+        return {"ok": False, "message": "No frame available"}
+    
+    import base64
+    return {
+        "ok": True,
+        "frame_base64": base64.b64encode(raw).decode("ascii"),
+        "width": meta.get("width", CAM_WIDTH),
+        "height": meta.get("height", CAM_HEIGHT),
+        "format": meta.get("format", "RGB565"),
+        "camera_device_id": lookup_id,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 
