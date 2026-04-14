@@ -61,6 +61,13 @@ void setup() {
 void loop() {
   server.handleClient();
 
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️ reconnect WiFi...");
+    WiFi.reconnect();
+    delay(1000);
+    return;
+  }
+
   if (millis() - last_ping_time > PING_INTERVAL_MS) {
     last_ping_time = millis();
     sendPing();
@@ -134,7 +141,31 @@ void setupServer() {
     server.send(200, "text/plain", "ESP32-CAM RGB565 ONLINE");
   });
 
+  server.on("/capture", HTTP_GET, handleCapture);
+
   server.begin();
+}
+
+// ================= CAPTURE =================
+void handleCapture() {
+  if (!camera_initialized) {
+    server.send(500, "text/plain", "Camera not ready");
+    return;
+  }
+
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    server.send(500, "text/plain", "Capture failed");
+    return;
+  }
+
+  // ❗ если RGB565 — серверу будет тяжело
+  server.sendHeader("Content-Type", "image/bmp");
+  server.send(200, "image/bmp", (const char*)fb->buf, fb->len);
+
+  esp_camera_fb_return(fb);
+
+  Serial.println("📸 frame sent");
 }
 
 // ================= PING =================
@@ -148,7 +179,8 @@ void sendPing() {
   HTTPClient http;
 
   String url = String("https://") + CLOUD_HOST + PING_PATH +
-               "?device_id=" + DEVICE_ID;
+               "?device_id=" + DEVICE_ID +
+               "&ip=" + WiFi.localIP().toString();
 
   Serial.println("\n🔵 PING:");
   Serial.println(url);  
