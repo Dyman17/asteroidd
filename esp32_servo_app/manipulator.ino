@@ -3,6 +3,10 @@
 #include <ESP32Servo.h>
 #include <WiFiClientSecure.h>
 
+// ===== GLOBAL TLS CLIENT =====
+WiFiClientSecure client;
+HTTPClient httpClient;
+
 // ===== WIFI =====
 const char* ssid = "Dyman";
 const char* password = "Dastan2020+";
@@ -66,7 +70,7 @@ long readDistance(int trigPin, int echoPin) {
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
-  long duration = pulseIn(echoPin, HIGH, 30000);
+  long duration = pulseIn(echoPin, HIGH, 10000);
   if (duration == 0) return -1;
   return duration * 0.034 / 2;
 }
@@ -75,21 +79,19 @@ long readDistance(int trigPin, int echoPin) {
 bool serverAllows() {
   if (WiFi.status() != WL_CONNECTED) return false;
 
-  WiFiClientSecure client;
   client.setInsecure();  // For self-signed or test certificates
 
-  HTTPClient http;
-  http.begin(client, SERVER_URL);
-  http.setTimeout(3000);
+  httpClient.begin(client, SERVER_URL);
+  httpClient.setTimeout(3000);
 
-  int code = http.GET();
+  int code = httpClient.GET();
   if (code != 200) {
-    http.end();
+    httpClient.end();
     return false;
   }
 
-  String response = http.getString();
-  http.end();
+  String response = httpClient.getString();
+  httpClient.end();
 
   response.trim();
   Serial.print("🧠 Server says: ");
@@ -102,15 +104,13 @@ bool serverAllows() {
 void sendEvent() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  WiFiClientSecure client;
   client.setInsecure();
 
-  HTTPClient http;
   String url = "https://asteroidd-server.onrender.com/esp_servo/event?device_id=esp32-servo-test";
-  http.begin(client, url);
-  http.setTimeout(2000);
-  http.GET();
-  http.end();
+  httpClient.begin(client, url);
+  httpClient.setTimeout(2000);
+  httpClient.GET();
+  httpClient.end();
   Serial.println("📡 Event sent to server");
 }
 
@@ -166,22 +166,28 @@ void loop() {
   Serial.printf("📏 L:%ld C:%ld R:%ld\n", left, center, right);
 
   int threshold = 15;
-  bool detected = false;
+  int detectCount = 0;
+  int direction = -1; // 0: left, 1: center, 2: right
 
   if (left > 0 && left < threshold) {
-    moveSmooth(bigServo, 90, 180, 2);
-    detected = true;
+    detectCount++;
+    if (direction == -1) direction = 0;
   }
-  else if (center > 0 && center < threshold) {
-    moveSmooth(bigServo, 90, 0, 2);
-    detected = true;
+  if (center > 0 && center < threshold) {
+    detectCount++;
+    if (direction == -1) direction = 1;
   }
-  else if (right > 0 && right < threshold) {
-    moveSmooth(bigServo, 90, 90, 2);
-    detected = true;
+  if (right > 0 && right < threshold) {
+    detectCount++;
+    if (direction == -1) direction = 2;
   }
 
-  if (!detected) return;
+  if (detectCount < 2) return;
+
+  // Move servo based on direction
+  if (direction == 0) moveSmooth(bigServo, 90, 180, 2);
+  else if (direction == 1) moveSmooth(bigServo, 90, 0, 2);
+  else if (direction == 2) moveSmooth(bigServo, 90, 90, 2);
 
   // ===== AI COOLDOWN CHECK =====
   if (millis() - lastAIRequest < AI_COOLDOWN) {
@@ -192,10 +198,18 @@ void loop() {
 
   // ===== SEND EVENT =====
   sendEvent();
-  delay(300);  // Wait for server to process event
 
-  // ===== AI DECISION =====
-  if (serverAllows()) {
+  // ===== POLLING FOR AI DECISION =====
+  bool allow = false;
+  for (int i = 0; i < 5; i++) {  // до ~2 сек
+    delay(400);
+    if (serverAllows()) {
+      allow = true;
+      break;
+    }
+  }
+
+  if (allow) {
     Serial.println("✅ ALLOW → GRAB");
 
     // ===== GRAB =====
