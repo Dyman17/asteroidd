@@ -2,14 +2,14 @@
 #define CONFIG_H
 
 // Wi-Fi
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID "Nuks"
+#define WIFI_PASSWORD "Dastan2020+"
 
 // Cloud relay
-#define CLOUD_HOST "your-cloud-host.com"
+#define CLOUD_HOST "asteroidd-server.onrender.com"
 #define CLOUD_CHECK_PATH "/esp_servo/check"
 #define CLOUD_PING_PATH "/esp_servo/ping"
-#define DEVICE_ID "esp32-cam-1"
+#define DEVICE_ID "auto"
 #define PING_INTERVAL_MS 30000
 
 // Ultrasonic sensors

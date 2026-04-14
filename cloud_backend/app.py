@@ -15,6 +15,8 @@ AI_URL = os.getenv("AI_URL", "").strip()
 DEFAULT_DEVICE_ID = os.getenv("DEFAULT_DEVICE_ID", "esp32-cam-1").strip()
 MAX_FRAME_AGE_SECONDS = float(os.getenv("MAX_FRAME_AGE_SECONDS", "7"))
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "5"))
+AI_PORT = os.getenv("AI_PORT", "8000").strip()
+AI_PATH = os.getenv("AI_PATH", "/analyze_bytes").strip()
 
 
 class AnalysisResponse(BaseModel):
@@ -36,6 +38,7 @@ app = FastAPI(
 last_seen: Dict[str, float] = {}
 ai_url_runtime: Optional[str] = None
 esp_cam_ip: Dict[str, str] = {}
+latest_cam_device_id: Optional[str] = None
 latest_results: Dict[str, AnalysisResponse] = {}
 lock = threading.Lock()
 
@@ -51,6 +54,12 @@ def _is_fresh(result: AnalysisResponse) -> bool:
 
 def _get_ai_url() -> str:
     return ai_url_runtime or AI_URL
+
+
+def _build_ai_url_from_ip(ip: str) -> str:
+    if not ip:
+        return ""
+    return f"http://{ip}:{AI_PORT}{AI_PATH}"
 
 
 def _forward_to_ai(image_bytes: bytes, device_id: str) -> AnalysisResponse:
@@ -87,16 +96,22 @@ def health() -> dict:
 @app.get("/esp_cam/ping")
 def esp_cam_ping(request: Request, device_id: str = DEFAULT_DEVICE_ID) -> dict:
     client_ip = request.client.host if request.client else ""
+    if not device_id or device_id.lower() == "auto":
+        device_id = client_ip or DEFAULT_DEVICE_ID
     with lock:
         last_seen[f"esp_cam:{device_id}"] = _now()
         if client_ip:
             esp_cam_ip[device_id] = client_ip
+            global latest_cam_device_id
+            latest_cam_device_id = device_id
     return {"ok": True, "device_type": "esp_cam", "device_id": device_id, "ip": client_ip}
 
 
 @app.get("/esp_servo/ping")
 def esp_servo_ping(request: Request, device_id: str = DEFAULT_DEVICE_ID) -> dict:
     client_ip = request.client.host if request.client else ""
+    if not device_id or device_id.lower() == "auto":
+        device_id = client_ip or DEFAULT_DEVICE_ID
     with lock:
         last_seen[f"esp_servo:{device_id}"] = _now()
     return {"ok": True, "device_type": "esp_servo", "device_id": device_id, "ip": client_ip}
@@ -111,11 +126,15 @@ def ai_ping(
     client_ip = request.client.host if request.client else ""
     with lock:
         last_seen[f"ai_laptop:{device_id}"] = _now()
+        global ai_url_runtime
         if ai_url:
             if not (ai_url.startswith("http://") or ai_url.startswith("https://")):
                 raise HTTPException(status_code=400, detail="ai_url must start with http:// or https://")
-            global ai_url_runtime
             ai_url_runtime = ai_url.strip()
+        else:
+            auto_url = _build_ai_url_from_ip(client_ip)
+            if auto_url:
+                ai_url_runtime = auto_url
     return {
         "ok": True,
         "device_type": "ai_laptop",
@@ -151,7 +170,10 @@ def check(device_id: str = DEFAULT_DEVICE_ID) -> str:
     # sends it to AI, then returns ALLOW/DENY.
     try:
         with lock:
-            cam_ip = esp_cam_ip.get(device_id, "")
+            lookup_id = device_id
+            if not lookup_id or lookup_id.lower() == "auto":
+                lookup_id = latest_cam_device_id or DEFAULT_DEVICE_ID
+            cam_ip = esp_cam_ip.get(lookup_id, "")
         if not cam_ip:
             return "DENY"
         cam_url = f"http://{cam_ip}/capture"
@@ -167,9 +189,9 @@ def check(device_id: str = DEFAULT_DEVICE_ID) -> str:
         return "DENY"
 
     with lock:
-        latest_results[device_id] = result
+        latest_results[lookup_id] = result
         last_seen[f"esp_servo:{device_id}"] = _now()
-        last_seen[f"esp_cam:{device_id}"] = _now()
+        last_seen[f"esp_cam:{lookup_id}"] = _now()
     return result.decision
 
 
@@ -208,7 +230,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "hybrid_server:app",
+        "app:app",
         host="0.0.0.0",
         port=int(os.getenv("PORT", "7860")),
         reload=False,
