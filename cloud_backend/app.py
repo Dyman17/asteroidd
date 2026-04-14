@@ -305,6 +305,48 @@ def pull_frame(ai_device_id: str = DEFAULT_DEVICE_ID, cam_device_id: str = "") -
     }
 
 
+@app.get("/esp_servo/event")
+def esp_servo_event(device_id: str = DEFAULT_DEVICE_ID) -> dict:
+    """
+    ESP-Servo signals object detected. Trigger fresh AI analysis.
+    """
+    with lock:
+        # Find the latest camera device
+        lookup_id = latest_cam_device_id or DEFAULT_DEVICE_ID
+        raw = latest_raw_frames.get(lookup_id)
+        meta = latest_raw_meta.get(lookup_id, {})
+
+    if not raw:
+        return {"decision": "DENY", "reason": "No frame available"}
+
+    # Convert to JPEG and forward to AI
+    if meta.get("format", "RGB565").upper() == "RGB565":
+        image_bytes = _rgb565_to_jpeg(raw, int(meta.get("width", CAM_WIDTH)), int(meta.get("height", CAM_HEIGHT)))
+    else:
+        image_bytes = raw
+
+    try:
+        result = _forward_to_ai(image_bytes, device_id=device_id)
+        with lock:
+            latest_results[lookup_id] = result
+            last_seen[f"esp_servo:{device_id}"] = _now()
+        return {"decision": result.decision, "reason": "AI analyzed"}
+    except Exception as exc:
+        return {"decision": "DENY", "reason": f"AI error: {exc}"}
+
+
+@app.get("/esp_servo/check")
+def esp_servo_check(device_id: str = DEFAULT_DEVICE_ID) -> PlainTextResponse:
+    """
+    ESP-Servo polls for decision after event.
+    """
+    with lock:
+        result = latest_results.get(device_id)
+    if result and _is_fresh(result):
+        return PlainTextResponse(result.decision)
+    return PlainTextResponse("DENY")
+
+
 if __name__ == "__main__":
     import uvicorn
 

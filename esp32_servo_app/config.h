@@ -2,14 +2,14 @@
 #define CONFIG_H
 
 // Wi-Fi
-#define WIFI_SSID ""
-#define WIFI_PASSWORD ""
+#define WIFI_SSID "Test"
+#define WIFI_PASSWORD "Test1234"
 
 // Cloud relay
 #define CLOUD_HOST "asteroidd-server.onrender.com"
 #define CLOUD_CHECK_PATH "/esp_servo/check"
 #define CLOUD_PING_PATH "/esp_servo/ping"
-#define DEVICE_ID "auto"
+#define DEVICE_ID ""  // Now generated dynamically from MAC
 #define PING_INTERVAL_MS 30000
 
 // Ultrasonic sensors

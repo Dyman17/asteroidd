@@ -25,10 +25,6 @@ Servo bigServo;
 Servo smallServo1;
 Servo smallServo2;
 
-// ===== COOLDOWN =====
-unsigned long lastAIRequest = 0;
-const int AI_COOLDOWN = 2000;  // 2 seconds between AI requests
-
 // ===== SERVO HELPERS =====
 void moveSmooth(Servo &servo, int startAngle, int endAngle, int speedDelay) {
   int step = (endAngle > startAngle) ? 1 : -1;
@@ -98,22 +94,6 @@ bool serverAllows() {
   return response == "ALLOW";
 }
 
-// ===== SEND EVENT =====
-void sendEvent() {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  String url = "https://asteroidd-server.onrender.com/esp_servo/event?device_id=esp32-servo-test";
-  http.begin(client, url);
-  http.setTimeout(2000);
-  http.GET();
-  http.end();
-  Serial.println("📡 Event sent to server");
-}
-
 // ===== SETUP =====
 void setup() {
   Serial.begin(115200);
@@ -148,14 +128,6 @@ void setup() {
 
 // ===== LOOP =====
 void loop() {
-  // ===== WIFI CHECK =====
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("⚠️ WiFi lost, reconnecting...");
-    WiFi.reconnect();
-    delay(1000);
-    return;
-  }
-
   long left   = readDistance(TRIG_LEFT, ECHO_LEFT);
   delay(40);
   long center = readDistance(TRIG_CENTER, ECHO_CENTER);
@@ -182,17 +154,6 @@ void loop() {
   }
 
   if (!detected) return;
-
-  // ===== AI COOLDOWN CHECK =====
-  if (millis() - lastAIRequest < AI_COOLDOWN) {
-    Serial.println("⏳ AI cooldown active, skipping request");
-    return;
-  }
-  lastAIRequest = millis();
-
-  // ===== SEND EVENT =====
-  sendEvent();
-  delay(300);  // Wait for server to process event
 
   // ===== AI DECISION =====
   if (serverAllows()) {
