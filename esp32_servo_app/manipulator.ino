@@ -101,17 +101,26 @@ bool serverAllows() {
 }
 
 // ===== SEND EVENT =====
-void sendEvent() {
-  if (WiFi.status() != WL_CONNECTED) return;
+String sendEvent() {
+  if (WiFi.status() != WL_CONNECTED) return "DENY";
 
   client.setInsecure();
 
   String url = "https://asteroidd-server.onrender.com/esp_servo/event?device_id=esp32-servo-test";
   httpClient.begin(client, url);
-  httpClient.setTimeout(2000);
-  httpClient.GET();
+  httpClient.setTimeout(10000);  // Longer timeout for AI processing
+  int code = httpClient.GET();
+  if (code != 200) {
+    httpClient.end();
+    return "DENY";
+  }
+
+  String response = httpClient.getString();
   httpClient.end();
-  Serial.println("📡 Event sent to server");
+  response.trim();
+  Serial.print("🧠 Event response: ");
+  Serial.println(response);
+  return response;
 }
 
 // ===== SETUP =====
@@ -196,20 +205,10 @@ void loop() {
   }
   lastAIRequest = millis();
 
-  // ===== SEND EVENT =====
-  sendEvent();
+  // ===== SEND EVENT AND GET DECISION =====
+  String decision = sendEvent();
 
-  // ===== POLLING FOR AI DECISION =====
-  bool allow = false;
-  for (int i = 0; i < 5; i++) {  // до ~2 сек
-    delay(400);
-    if (serverAllows()) {
-      allow = true;
-      break;
-    }
-  }
-
-  if (allow) {
+  if (decision == "ALLOW") {
     Serial.println("✅ ALLOW → GRAB");
 
     // ===== GRAB =====

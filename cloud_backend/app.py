@@ -45,6 +45,8 @@ ai_url_runtime: Optional[str] = None
 esp_cam_ip: Dict[str, str] = {}
 latest_cam_device_id: Optional[str] = None
 latest_results: Dict[str, AnalysisResponse] = {}
+latest_raw_frames: Dict[str, bytes] = {}
+need_frame: bool = False
 lock = threading.Lock()
 
 
@@ -127,7 +129,12 @@ def esp_cam_ping(request: Request, device_id: str = DEFAULT_DEVICE_ID) -> dict:
             esp_cam_ip[device_id] = client_ip
             global latest_cam_device_id
             latest_cam_device_id = device_id
-    return {"ok": True, "device_type": "esp_cam", "device_id": device_id, "ip": client_ip}
+    return {"ok": True, "device_type": "esp_cam", "device_id": device_id, "ip": client_ip, "need_frame": need_frame}
+
+
+@app.get("/esp_cam/status")
+def esp_cam_status() -> dict:
+    return {"need_frame": need_frame}
 
 
 @app.get("/esp_servo/ping")
@@ -198,6 +205,27 @@ async def ai_result(request: Request) -> AnalysisResponse:
     return result
 
 
+@app.post("/esp_cam/frame")
+async def ingest_raw_frame(
+    request: Request,
+    x_device_id: Optional[str] = Header(default=None),
+) -> dict:
+    device_id = (x_device_id or DEFAULT_DEVICE_ID).strip()
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty request body")
+
+    with lock:
+        latest_raw_frames[device_id] = raw
+        last_seen[f"esp_cam:{device_id}"] = _now()
+        global latest_cam_device_id
+        latest_cam_device_id = device_id
+        global need_frame
+        need_frame = False  # Reset after receiving frame
+
+    return {"ok": True, "device_id": device_id}
+
+
 @app.get("/ai/pull_frame")
 def pull_frame(ai_device_id: str = DEFAULT_DEVICE_ID, cam_device_id: str = "") -> dict:
     """
@@ -226,41 +254,44 @@ def pull_frame(ai_device_id: str = DEFAULT_DEVICE_ID, cam_device_id: str = "") -
 
 
 @app.get("/esp_servo/event")
-def esp_servo_event(device_id: str = DEFAULT_DEVICE_ID) -> dict:
+def esp_servo_event(device_id: str = DEFAULT_DEVICE_ID) -> PlainTextResponse:
     """
     ESP-Servo signals object detected. Trigger fresh AI analysis.
     """
     with lock:
-        # Find the camera IP
-        lookup_id = latest_cam_device_id or DEFAULT_DEVICE_ID
-        ip = esp_cam_ip.get(lookup_id)
+        global need_frame
+        need_frame = True  # Signal camera to send frame
 
-    if not ip:
-        return {"decision": "DENY", "reason": "No camera IP available"}
+        # Wait for frame (simple polling, timeout 5s)
+        start_time = time.time()
+        while time.time() - start_time < 5.0:
+            raw = latest_raw_frames.get(latest_cam_device_id or DEFAULT_DEVICE_ID)
+            if raw:
+                break
+            time.sleep(0.1)  # Small delay
 
-    # Pull fresh frame from ESP-CAM
-    try:
-        resp = requests.get(f"http://{ip}/capture", timeout=5.0)
-        resp.raise_for_status()
-        raw = resp.content
-    except Exception as exc:
-        return {"decision": "DENY", "reason": f"Failed to capture frame: {exc}"}
+        if not raw:
+            need_frame = False
+            return PlainTextResponse("DENY")
 
     # Convert RGB565 BMP to JPEG
     try:
         image_bytes = _rgb565_to_jpeg(raw, CAM_WIDTH, CAM_HEIGHT)
-    except Exception as exc:
-        return {"decision": "DENY", "reason": f"Frame conversion error: {exc}"}
+    except Exception:
+        need_frame = False
+        return PlainTextResponse("DENY")
 
     # Forward to AI
     try:
         result = _forward_to_ai(image_bytes, device_id=device_id)
         with lock:
-            latest_results[lookup_id] = result
+            latest_results[device_id] = result
             last_seen[f"esp_servo:{device_id}"] = _now()
-        return {"decision": result.decision, "reason": "AI analyzed"}
-    except Exception as exc:
-        return {"decision": "DENY", "reason": f"AI error: {exc}"}
+        need_frame = False
+        return PlainTextResponse(result.decision)
+    except Exception:
+        need_frame = False
+        return PlainTextResponse("DENY")
 
 
 @app.get("/esp_servo/check")

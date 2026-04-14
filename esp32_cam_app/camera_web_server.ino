@@ -21,6 +21,7 @@ WebServer server(80);
 
 bool camera_initialized = false;
 unsigned long last_ping_time = 0;
+unsigned long last_status_check = 0;
 
 // ================= CAMERA PINS (AI THINKER ESP32-CAM) =================
 #define PWDN_GPIO_NUM     32
@@ -66,6 +67,17 @@ void loop() {
     WiFi.reconnect();
     delay(1000);
     return;
+  }
+
+  if (camera_initialized && millis() - last_status_check > 1000) {
+    last_status_check = millis();
+    if (checkNeedFrame()) {
+      camera_fb_t *fb = esp_camera_fb_get();
+      if (fb) {
+        sendFrameToServer(fb);
+        esp_camera_fb_return(fb);
+      }
+    }
   }
 
   if (millis() - last_ping_time > PING_INTERVAL_MS) {
@@ -166,6 +178,56 @@ void handleCapture() {
   esp_camera_fb_return(fb);
 
   Serial.println("📸 frame sent");
+}
+
+// ================= CHECK NEED FRAME =================
+bool checkNeedFrame() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  String url = String("https://") + CLOUD_HOST + "/esp_cam/status";
+
+  http.begin(client, url);
+  http.setTimeout(2000);
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    return false;
+  }
+
+  String response = http.getString();
+  http.end();
+
+  // Simple JSON parse for "need_frame": true
+  if (response.indexOf("\"need_frame\":true") != -1) {
+    return true;
+  }
+  return false;
+}
+
+// ================= SEND FRAME TO SERVER =================
+void sendFrameToServer(camera_fb_t *fb) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  String url = String("https://") + CLOUD_HOST + "/esp_cam/frame";
+
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/octet-stream");
+  http.addHeader("X-Device-Id", DEVICE_ID);
+
+  int code = http.POST(fb->buf, fb->len);
+
+  Serial.print("📤 FRAME UPLOAD: ");
+  Serial.println(code);
+
+  http.end();
 }
 
 // ================= PING =================
