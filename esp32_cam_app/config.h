@@ -2,8 +2,8 @@
 #define CONFIG_H
 
 // Wi-Fi настройки
-#define WIFI_SSID "Nuks"
-#define WIFI_PASSWORD "Dastan2020+"
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
 
 // Настройки камеры
 #define CAMERA_MODEL_AI_THINKER

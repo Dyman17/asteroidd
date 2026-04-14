@@ -2,8 +2,8 @@
 #define CONFIG_H
 
 // Wi-Fi
-#define WIFI_SSID "Nuks"
-#define WIFI_PASSWORD "Dastan2020+"
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
 
 // Cloud relay
 #define CLOUD_HOST "asteroidd-server.onrender.com"

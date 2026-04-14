@@ -112,7 +112,7 @@ void setupCamera() {
 }
 
 void setupWiFi() {
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin("Nuks", "Dastan2020+");
   
   Serial.print("🔌 Подключение к Wi-Fi");
   while (WiFi.status() != WL_CONNECTED) {
