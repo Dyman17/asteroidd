@@ -94,7 +94,7 @@ void setupServos() {
 }
 
 void setupWiFi() {
-  WiFi.begin("Nuks", "Dastan2020+");
+  WiFi.begin("Test", "Test1234");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
   }
