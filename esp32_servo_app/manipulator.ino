@@ -8,8 +8,8 @@ WiFiClientSecure client;
 HTTPClient httpClient;
 
 // ===== WIFI =====
-const char* ssid = "Dyman";
-const char* password = "Dastan2020+";
+const char* ssid = "Test";
+const char* password = "Test1234";
 const char* SERVER_URL = "https://asteroidd-server.onrender.com/esp_servo/check?device_id=esp32-servo-test";
 
 // ===== ULTRASONIC =====

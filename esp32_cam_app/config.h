@@ -2,8 +2,8 @@
 #define CONFIG_H
 
 // Wi-Fi настройки
-#define WIFI_SSID ""
-#define WIFI_PASSWORD ""
+#define WIFI_SSID "Test"
+#define WIFI_PASSWORD "Test1234"
 
 // Настройки камеры
 #define CAMERA_MODEL_AI_THINKER
