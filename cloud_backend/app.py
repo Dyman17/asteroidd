@@ -4,7 +4,10 @@ import threading
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
+import io
 import requests
+import numpy as np
+from PIL import Image
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -17,6 +20,8 @@ MAX_FRAME_AGE_SECONDS = float(os.getenv("MAX_FRAME_AGE_SECONDS", "7"))
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "5"))
 AI_PORT = os.getenv("AI_PORT", "8000").strip()
 AI_PATH = os.getenv("AI_PATH", "/analyze_bytes").strip()
+CAM_WIDTH = int(os.getenv("CAM_WIDTH", "320"))
+CAM_HEIGHT = int(os.getenv("CAM_HEIGHT", "240"))
 
 
 class AnalysisResponse(BaseModel):
@@ -40,6 +45,8 @@ ai_url_runtime: Optional[str] = None
 esp_cam_ip: Dict[str, str] = {}
 latest_cam_device_id: Optional[str] = None
 latest_results: Dict[str, AnalysisResponse] = {}
+latest_raw_frames: Dict[str, bytes] = {}
+latest_raw_meta: Dict[str, dict] = {}
 lock = threading.Lock()
 
 
@@ -86,6 +93,24 @@ def _forward_to_ai(image_bytes: bytes, device_id: str) -> AnalysisResponse:
         device_id=device_id,
         source="ai_http",
     )
+
+
+def _rgb565_to_jpeg(raw: bytes, width: int, height: int) -> bytes:
+    expected = width * height * 2
+    if len(raw) != expected:
+        raise ValueError(f"RGB565 length mismatch: got {len(raw)} expected {expected}")
+    data = np.frombuffer(raw, dtype=np.uint16).reshape((height, width))
+    r = ((data >> 11) & 0x1F).astype(np.uint8)
+    g = ((data >> 5) & 0x3F).astype(np.uint8)
+    b = (data & 0x1F).astype(np.uint8)
+    r = (r * 255 // 31).astype(np.uint8)
+    g = (g * 255 // 63).astype(np.uint8)
+    b = (b * 255 // 31).astype(np.uint8)
+    rgb = np.stack([r, g, b], axis=-1)
+    img = Image.fromarray(rgb, mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
 
 
 @app.get("/health")
@@ -164,6 +189,33 @@ async def ingest_frame(
     return result
 
 
+@app.post("/esp_cam/frame")
+async def ingest_raw_frame(
+    request: Request,
+    x_device_id: Optional[str] = Header(default=None),
+    x_width: Optional[str] = Header(default=None),
+    x_height: Optional[str] = Header(default=None),
+    x_format: Optional[str] = Header(default=None),
+) -> dict:
+    device_id = (x_device_id or DEFAULT_DEVICE_ID).strip()
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty request body")
+
+    width = int(x_width) if x_width else CAM_WIDTH
+    height = int(x_height) if x_height else CAM_HEIGHT
+    fmt = (x_format or "RGB565").upper()
+
+    with lock:
+        latest_raw_frames[device_id] = raw
+        latest_raw_meta[device_id] = {"width": width, "height": height, "format": fmt}
+        last_seen[f"esp_cam:{device_id}"] = _now()
+        global latest_cam_device_id
+        latest_cam_device_id = device_id
+
+    return {"ok": True, "device_id": device_id, "width": width, "height": height, "format": fmt}
+
+
 @app.get("/esp_servo/check", response_class=PlainTextResponse)
 def check(device_id: str = DEFAULT_DEVICE_ID) -> str:
     # Servo pulls a decision; server pulls the latest frame from ESP32-CAM,
@@ -173,13 +225,13 @@ def check(device_id: str = DEFAULT_DEVICE_ID) -> str:
             lookup_id = device_id
             if not lookup_id or lookup_id.lower() == "auto":
                 lookup_id = latest_cam_device_id or DEFAULT_DEVICE_ID
-            cam_ip = esp_cam_ip.get(lookup_id, "")
-        if not cam_ip:
+            raw = latest_raw_frames.get(lookup_id)
+            meta = latest_raw_meta.get(lookup_id, {})
+        if not raw:
             return "DENY"
-        cam_url = f"http://{cam_ip}/capture"
-        cam_resp = requests.get(cam_url, timeout=AI_TIMEOUT)
-        cam_resp.raise_for_status()
-        image_bytes = cam_resp.content
+        if meta.get("format", "RGB565").upper() != "RGB565":
+            return "DENY"
+        image_bytes = _rgb565_to_jpeg(raw, int(meta.get("width", CAM_WIDTH)), int(meta.get("height", CAM_HEIGHT)))
     except Exception:
         return "DENY"
 
